@@ -1,7 +1,13 @@
+use crate::error::ClientError;
+use crate::network::{download_file, request_async};
 use crate::Result;
+
+use async_std::fs;
+use isahc::prelude::*;
 use regex::Regex;
+use serde::Deserialize;
+
 use std::ffi::OsStr;
-use std::fs::File;
 use std::path::PathBuf;
 
 /// Takes a `&str` and strips any non-digit.
@@ -15,54 +21,70 @@ pub fn strip_non_digits(string: &str) -> Option<String> {
     Some(stripped)
 }
 
-pub async fn get_latest_release() -> Option<self_update::update::Release> {
-    async_std::task::spawn_blocking(|| {
-        let releases = self_update::backends::github::ReleaseList::configure()
-            .repo_owner("casperstorm")
-            .repo_name("ajour")
-            .build()
-            .ok()?
-            .fetch()
-            .ok()?;
-
-        releases.get(0).cloned()
-    })
-    .await
+#[derive(Debug, Deserialize, Clone)]
+pub struct Release {
+    pub tag_name: String,
+    pub assets: Vec<ReleaseAsset>,
 }
 
-pub async fn update_in_place(
-    bin_name: String,
-    release: self_update::update::Release,
-) -> Result<()> {
-    async_std::task::spawn_blocking(move || {
-        let asset = release
-            .assets
-            .iter()
-            .find(|a| a.name == bin_name)
-            .cloned()
-            .unwrap();
+#[derive(Debug, Deserialize, Clone)]
+pub struct ReleaseAsset {
+    pub name: String,
+    #[serde(rename = "browser_download_url")]
+    pub download_url: String,
+}
 
-        let current_bin_path = std::env::current_exe().unwrap();
+pub async fn get_latest_release() -> Option<Release> {
+    log::debug!("checking for application update");
 
-        let new_bin_path = current_bin_path
-            .parent()
-            .unwrap()
-            .join(&format!("tmp_{}", bin_name));
+    let client = HttpClient::new().ok()?;
 
-        let new_bin = File::create(&new_bin_path)?;
-
-        self_update::Download::from_url(&asset.download_url)
-            .set_header(
-                isahc::http::header::ACCEPT,
-                "application/octet-stream".parse().unwrap(),
-            )
-            .download_to(&new_bin)?;
-
-        self_update::Move::from_source(&new_bin_path).to_dest(&::std::env::current_exe()?)?;
-
-        Ok(())
-    })
+    let mut resp = request_async(
+        &client,
+        "https://api.github.com/repos/casperstorm/ajour/releases/latest",
+        vec![],
+        None,
+    )
     .await
+    .ok()?;
+
+    Some(resp.json().ok()?)
+}
+
+pub async fn update_in_place(bin_name: String, release: Release) -> Result<PathBuf> {
+    let asset = release
+        .assets
+        .iter()
+        .find(|a| a.name == bin_name)
+        .cloned()
+        .ok_or_else(|| {
+            ClientError::Custom(format!("No new release binary available for {}", bin_name))
+        })?;
+
+    let current_bin_path = std::env::current_exe()?;
+
+    let new_bin_path = current_bin_path
+        .parent()
+        .unwrap()
+        .join(&format!("tmp_{}", bin_name));
+
+    download_file(&asset.download_url, &new_bin_path).await?;
+
+    // Make executable
+    #[cfg(not(windows))]
+    {
+        use std::os::unix::fs::PermissionsExt;
+
+        let mut permissions = fs::metadata(&new_bin_path).await?.permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(&new_bin_path, permissions).await?;
+    }
+
+    fs::rename(&new_bin_path, &current_bin_path).await?;
+
+    log::debug!("{:?} renamed to {:?}", &new_bin_path, &current_bin_path);
+
+    Ok(current_bin_path)
 }
 
 /// Logic to help pick the right World of Warcraft folder. We want the root folder.

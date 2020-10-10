@@ -12,7 +12,6 @@ pub enum ClientError {
     LoadFileDoesntExist(PathBuf),
     LogError(String),
     FingerprintError(String),
-    SelfUpdateError(self_update::errors::Error),
 }
 
 impl ClientError {
@@ -37,7 +36,6 @@ impl fmt::Display for ClientError {
             Self::LoadFileDoesntExist(x) => write!(f, "file doesn't exist: {:?}", x),
             Self::LogError(x) => write!(f, "{}", x),
             Self::FingerprintError(x) => write!(f, "{}", x),
-            Self::SelfUpdateError(x) => write!(f, "{}", x),
         }
     }
 }
@@ -87,11 +85,5 @@ impl From<fern::InitError> for ClientError {
 impl From<log::SetLoggerError> for ClientError {
     fn from(error: log::SetLoggerError) -> Self {
         Self::LogError(format!("{:?}", error))
-    }
-}
-
-impl From<self_update::errors::Error> for ClientError {
-    fn from(error: self_update::errors::Error) -> Self {
-        Self::SelfUpdateError(error)
     }
 }

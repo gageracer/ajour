@@ -4,7 +4,7 @@ use {
     super::{
         style, AjourMode, AjourState, BackupState, CatalogColumnKey, CatalogColumnState,
         CatalogRow, ColumnKey, ColumnSettings, ColumnState, DirectoryType, Interaction, Message,
-        ReleaseChannel, ScaleState, SortDirection, ThemeState,
+        ReleaseChannel, ScaleState, SelfUpdateState, SortDirection, ThemeState,
     },
     crate::VERSION,
     ajour_core::{
@@ -1076,8 +1076,7 @@ pub fn menu_container<'a>(
     settings_button_state: &'a mut button::State,
     addon_mode_button_state: &'a mut button::State,
     catalog_mode_btn_state: &'a mut button::State,
-    latest_release: Option<&self_update::update::Release>,
-    new_release_button_state: &'a mut button::State,
+    self_update_state: &'a mut SelfUpdateState,
 ) -> Container<'a, Message> {
     // A row contain general settings.
     let mut settings_row = Row::new().height(Length::Units(40));
@@ -1129,13 +1128,13 @@ pub fn menu_container<'a>(
         .push(catalog_mode_button.map(Message::Interaction))
         .spacing(1);
 
-    let version_text = Text::new(if let Some(release) = &latest_release {
-        if self_update::version::bump_is_greater(VERSION, &release.version).unwrap() {
+    let version_text = Text::new(if let Some(release) = &self_update_state.latest_release {
+        if release.tag_name != VERSION {
             needs_update = true;
 
             format!(
                 "New Ajour version available {} -> {}",
-                VERSION, &release.version
+                VERSION, &release.tag_name
             )
         } else {
             VERSION.to_owned()
@@ -1170,9 +1169,15 @@ pub fn menu_container<'a>(
 
     // Add download button to latest github release page if Ajour update is available.
     if needs_update {
+        let text = self_update_state
+            .status
+            .as_ref()
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| "Update".to_string());
+
         let mut new_release_button = Button::new(
-            new_release_button_state,
-            Text::new("Update").size(DEFAULT_FONT_SIZE),
+            &mut self_update_state.btn_state,
+            Text::new(&text).size(DEFAULT_FONT_SIZE),
         )
         .style(style::SecondaryButton(color_palette));
 

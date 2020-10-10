@@ -12,7 +12,7 @@ use ajour_core::{
     fs::PersistentData,
     parse::FingerprintCollection,
     theme::{load_user_themes, Theme},
-    utility::get_latest_release,
+    utility::{self, get_latest_release},
     Result,
 };
 use async_std::sync::{Arc, Mutex};
@@ -97,7 +97,7 @@ pub enum Message {
     DownloadedAddon((Flavor, String, Result<()>)),
     Error(ClientError),
     Interaction(Interaction),
-    LatestRelease(Option<self_update::update::Release>),
+    LatestRelease(Option<utility::Release>),
     None(()),
     Parse(Result<Config>),
     ParsedAddons((Flavor, Result<Vec<Addon>>)),
@@ -113,7 +113,7 @@ pub enum Message {
     BackupFinished(Result<NaiveDateTime>),
     CatalogDownloaded(Result<Catalog>),
     CatalogInstallAddonFetched(Result<(u32, Flavor, Addon)>),
-    AjourUpdated(Result<()>),
+    AjourUpdated(Result<PathBuf>),
 }
 
 pub struct Ajour {
@@ -123,8 +123,7 @@ pub struct Ajour {
     directory_btn_state: button::State,
     expanded_addon: Option<Addon>,
     is_showing_settings: bool,
-    latest_release: Option<self_update::update::Release>,
-    new_release_button_state: button::State,
+    self_update_state: SelfUpdateState,
     refresh_btn_state: button::State,
     settings_btn_state: button::State,
     shared_client: Arc<HttpClient>,
@@ -156,8 +155,7 @@ impl Default for Ajour {
             directory_btn_state: Default::default(),
             expanded_addon: None,
             is_showing_settings: false,
-            latest_release: None,
-            new_release_button_state: Default::default(),
+            self_update_state: Default::default(),
             refresh_btn_state: Default::default(),
             settings_btn_state: Default::default(),
             shared_client: Arc::new(
@@ -262,8 +260,7 @@ impl Application for Ajour {
             &mut self.settings_btn_state,
             &mut self.addon_mode_btn_state,
             &mut self.catalog_mode_btn_state,
-            self.latest_release.as_ref(),
-            &mut self.new_release_button_state,
+            &mut self.self_update_state,
         );
 
         let column_config = self.header_state.column_config();
@@ -1273,4 +1270,27 @@ pub struct BackupState {
     last_backup: Option<NaiveDateTime>,
     directory_btn_state: button::State,
     backup_now_btn_state: button::State,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum SelfUpdateStatus {
+    InProgress,
+    Failed,
+}
+
+impl std::fmt::Display for SelfUpdateStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match self {
+            SelfUpdateStatus::InProgress => "Updating",
+            SelfUpdateStatus::Failed => "Failed",
+        };
+        write!(f, "{}", s)
+    }
+}
+
+#[derive(Default, Debug)]
+pub struct SelfUpdateState {
+    latest_release: Option<utility::Release>,
+    status: Option<SelfUpdateStatus>,
+    btn_state: button::State,
 }

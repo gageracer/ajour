@@ -1,7 +1,8 @@
 use {
     super::{
         Ajour, AjourMode, AjourState, CatalogCategory, CatalogColumnKey, CatalogFlavor, CatalogRow,
-        CatalogSource, ColumnKey, DirectoryType, Interaction, Message, SortDirection,
+        CatalogSource, ColumnKey, DirectoryType, Interaction, Message, SelfUpdateStatus,
+        SortDirection,
     },
     ajour_core::{
         addon::{Addon, AddonState},
@@ -9,6 +10,7 @@ use {
         catalog,
         config::{load_config, ColumnConfig, ColumnConfigV2, Flavor},
         curse_api,
+        error::ClientError,
         fs::{delete_addons, install_addon, PersistentData},
         network::download_addon,
         parse::{read_addon_directory, update_addon_fingerprint, FingerprintCollection},
@@ -649,10 +651,10 @@ pub fn handle_message(ajour: &mut Ajour, message: Message) -> Result<Command<Mes
         Message::LatestRelease(release) => {
             log::debug!(
                 "Message::LatestRelease({:?})",
-                release.as_ref().map(|r| &r.version)
+                release.as_ref().map(|r| &r.tag_name)
             );
 
-            ajour.latest_release = release;
+            ajour.self_update_state.latest_release = release;
         }
         Message::Interaction(Interaction::SortColumn(column_key)) => {
             // Close settings if shown.
@@ -1160,14 +1162,10 @@ pub fn handle_message(ajour: &mut Ajour, message: Message) -> Result<Command<Mes
         Message::Interaction(Interaction::UpdateAjour) => {
             log::debug!("Interaction::UpdateAjour");
 
-            if let Some(release) = &ajour.latest_release {
-                let bin_name = std::env::current_exe()
-                    .unwrap()
-                    .file_name()
-                    .unwrap()
-                    .to_str()
-                    .unwrap()
-                    .to_owned();
+            if let Some(release) = &ajour.self_update_state.latest_release {
+                let bin_name = bin_name().to_owned();
+
+                ajour.self_update_state.status = Some(SelfUpdateStatus::InProgress);
 
                 return Ok(Command::perform(
                     update_in_place(bin_name, release.clone()),
@@ -1175,20 +1173,25 @@ pub fn handle_message(ajour: &mut Ajour, message: Message) -> Result<Command<Mes
                 ));
             }
         }
-        Message::AjourUpdated(Ok(_)) => {
+        Message::AjourUpdated(Ok(bin_path)) => {
             log::debug!("Message::AjourUpdated");
 
+            // Remove first arg, which is path to binary. We don't use this first
+            // arg as binary path because it's not reliable, per the docs. We
+            // also don't use `env::current_exe()` here because on linux, it returns
+            // a path with `(deleted)` in it from the `update_in_place` operation, which
+            // is why we store the `env::current_exe()` path before that operation takes
+            // place, and return it to this Message to use.
             let mut args = std::env::args();
             args.next();
 
-            let program = std::env::current_exe().unwrap();
-
-            if std::process::Command::new(&program)
-                .args(args)
-                .spawn()
-                .is_ok()
-            {
-                std::process::exit(0);
+            match std::process::Command::new(&bin_path).args(args).spawn() {
+                Ok(_) => std::process::exit(0),
+                Err(error) => {
+                    log::error!("{}", error);
+                    ajour.state = AjourState::Error(ClientError::from(error));
+                    ajour.self_update_state.status = Some(SelfUpdateStatus::Failed);
+                }
             }
         }
         Message::Error(error)
@@ -1482,4 +1485,38 @@ fn save_column_configs(ajour: &mut Ajour) {
     };
 
     let _ = ajour.config.save();
+}
+
+/// Hardcoded binary names for each compilation target
+/// that gets published to the Github Release
+const fn bin_name() -> &'static str {
+    #[cfg(all(target_os = "windows", feature = "opengl"))]
+    {
+        "ajour-opengl.exe"
+    }
+
+    #[cfg(all(target_os = "windows", feature = "wgpu"))]
+    {
+        "ajour.exe"
+    }
+
+    #[cfg(all(target_os = "macos", feature = "opengl"))]
+    {
+        "ajour-opengl.dmg"
+    }
+
+    #[cfg(all(target_os = "macos", feature = "wgpu"))]
+    {
+        "ajour.dmg"
+    }
+
+    #[cfg(all(target_os = "linux", feature = "opengl"))]
+    {
+        "ajour-opengl.AppImage"
+    }
+
+    #[cfg(all(target_os = "linux", feature = "wgpu"))]
+    {
+        "ajour.AppImage"
+    }
 }
