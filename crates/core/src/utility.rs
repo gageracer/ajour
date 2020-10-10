@@ -1,7 +1,5 @@
-use crate::{network::request_async, Result};
-use isahc::prelude::*;
+use crate::Result;
 use regex::Regex;
-use serde::Deserialize;
 use std::ffi::OsStr;
 use std::fs::File;
 use std::path::PathBuf;
@@ -65,33 +63,6 @@ pub async fn update_in_place(
         Ok(())
     })
     .await
-}
-
-#[derive(Deserialize)]
-struct Release {
-    tag_name: String,
-}
-
-pub async fn needs_update(current_version: &str) -> Result<Option<String>> {
-    log::debug!("checking for application update");
-
-    let client = HttpClient::new()?;
-
-    let mut resp = request_async(
-        &client,
-        "https://api.github.com/repos/casperstorm/ajour/releases/latest",
-        vec![],
-        None,
-    )
-    .await?;
-
-    let release: Release = resp.json()?;
-
-    if release.tag_name != current_version {
-        Ok(Some(release.tag_name))
-    } else {
-        Ok(None)
-    }
 }
 
 /// Logic to help pick the right World of Warcraft folder. We want the root folder.
