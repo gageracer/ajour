@@ -3,7 +3,6 @@ mod style;
 mod update;
 
 use crate::cli::Opts;
-use crate::VERSION;
 use ajour_core::{
     addon::{Addon, AddonState, ReleaseChannel},
     catalog::get_catalog,
@@ -13,7 +12,7 @@ use ajour_core::{
     fs::PersistentData,
     parse::FingerprintCollection,
     theme::{load_user_themes, Theme},
-    utility::needs_update,
+    utility::get_latest_release,
     Result,
 };
 use async_std::sync::{Arc, Mutex};
@@ -90,6 +89,7 @@ pub enum Interaction {
     CatalogResultSizeSelected(CatalogResultSize),
     CatalogFlavorSelected(CatalogFlavor),
     CatalogSourceSelected(CatalogSource),
+    UpdateAjour,
 }
 
 #[derive(Debug)]
@@ -97,7 +97,7 @@ pub enum Message {
     DownloadedAddon((Flavor, String, Result<()>)),
     Error(ClientError),
     Interaction(Interaction),
-    NeedsUpdate(Result<Option<String>>),
+    LatestRelease(Option<self_update::update::Release>),
     None(()),
     Parse(Result<Config>),
     ParsedAddons((Flavor, Result<Vec<Addon>>)),
@@ -113,6 +113,7 @@ pub enum Message {
     BackupFinished(Result<NaiveDateTime>),
     CatalogDownloaded(Result<Catalog>),
     CatalogInstallAddonFetched(Result<(u32, Flavor, Addon)>),
+    AjourUpdated(Result<()>),
 }
 
 pub struct Ajour {
@@ -122,7 +123,7 @@ pub struct Ajour {
     directory_btn_state: button::State,
     expanded_addon: Option<Addon>,
     is_showing_settings: bool,
-    needs_update: Option<String>,
+    latest_release: Option<self_update::update::Release>,
     new_release_button_state: button::State,
     refresh_btn_state: button::State,
     settings_btn_state: button::State,
@@ -155,7 +156,7 @@ impl Default for Ajour {
             directory_btn_state: Default::default(),
             expanded_addon: None,
             is_showing_settings: false,
-            needs_update: None,
+            latest_release: None,
             new_release_button_state: Default::default(),
             refresh_btn_state: Default::default(),
             settings_btn_state: Default::default(),
@@ -195,7 +196,7 @@ impl Application for Ajour {
     fn new(_flags: ()) -> (Self, Command<Message>) {
         let init_commands = vec![
             Command::perform(load_config(), Message::Parse),
-            Command::perform(needs_update(VERSION), Message::NeedsUpdate),
+            Command::perform(get_latest_release(), Message::LatestRelease),
             Command::perform(load_user_themes(), Message::ThemesLoaded),
             Command::perform(get_catalog(), Message::CatalogDownloaded),
         ];
@@ -261,7 +262,7 @@ impl Application for Ajour {
             &mut self.settings_btn_state,
             &mut self.addon_mode_btn_state,
             &mut self.catalog_mode_btn_state,
-            self.needs_update.as_deref(),
+            self.latest_release.as_ref(),
             &mut self.new_release_button_state,
         );
 

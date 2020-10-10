@@ -40,5 +40,6 @@ chrono = "0.4"
 log = "0.4"
 fern = "0.6"
 walkdir = "2.3"
+self_update = "0.20.0"
 
 iced_native = { git = "https://github.com/hecrj/iced.git", rev = "fb015a85d22a7c4632bd251127a89259bfd0c346", optional = true }

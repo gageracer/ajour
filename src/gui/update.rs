@@ -13,7 +13,7 @@ use {
         network::download_addon,
         parse::{read_addon_directory, update_addon_fingerprint, FingerprintCollection},
         tukui_api,
-        utility::wow_path_resolution,
+        utility::{update_in_place, wow_path_resolution},
         Result,
     },
     async_std::sync::{Arc, Mutex},
@@ -646,10 +646,13 @@ pub fn handle_message(ajour: &mut Ajour, message: Message) -> Result<Command<Mes
                 }
             }
         }
-        Message::NeedsUpdate(Ok(newer_version)) => {
-            log::debug!("Message::NeedsUpdate({:?})", &newer_version);
+        Message::LatestRelease(release) => {
+            log::debug!(
+                "Message::LatestRelease({:?})",
+                release.as_ref().map(|r| &r.version)
+            );
 
-            ajour.needs_update = newer_version;
+            ajour.latest_release = release;
         }
         Message::Interaction(Interaction::SortColumn(column_key)) => {
             // Close settings if shown.
@@ -1154,12 +1157,46 @@ pub fn handle_message(ajour: &mut Ajour, message: Message) -> Result<Command<Mes
                 ));
             }
         }
+        Message::Interaction(Interaction::UpdateAjour) => {
+            log::debug!("Interaction::UpdateAjour");
+
+            if let Some(release) = &ajour.latest_release {
+                let bin_name = std::env::current_exe()
+                    .unwrap()
+                    .file_name()
+                    .unwrap()
+                    .to_str()
+                    .unwrap()
+                    .to_owned();
+
+                return Ok(Command::perform(
+                    update_in_place(bin_name, release.clone()),
+                    Message::AjourUpdated,
+                ));
+            }
+        }
+        Message::AjourUpdated(Ok(_)) => {
+            log::debug!("Message::AjourUpdated");
+
+            let mut args = std::env::args();
+            args.next();
+
+            let program = std::env::current_exe().unwrap();
+
+            if std::process::Command::new(&program)
+                .args(args)
+                .spawn()
+                .is_ok()
+            {
+                std::process::exit(0);
+            }
+        }
         Message::Error(error)
         | Message::Parse(Err(error))
-        | Message::NeedsUpdate(Err(error))
         | Message::CatalogDownloaded(Err(error))
         | Message::CatalogInstallAddonFetched(Err(error))
-        | Message::DownloadedAddon((_, _, Err(error))) => {
+        | Message::DownloadedAddon((_, _, Err(error)))
+        | Message::AjourUpdated(Err(error)) => {
             log::error!("{}", error);
 
             ajour.state = AjourState::Error(error);

@@ -3,6 +3,7 @@ use isahc::prelude::*;
 use regex::Regex;
 use serde::Deserialize;
 use std::ffi::OsStr;
+use std::fs::File;
 use std::path::PathBuf;
 
 /// Takes a `&str` and strips any non-digit.
@@ -14,6 +15,56 @@ pub fn strip_non_digits(string: &str) -> Option<String> {
     let re = Regex::new(r"[\D]").unwrap();
     let stripped = re.replace_all(string, "").to_string();
     Some(stripped)
+}
+
+pub async fn get_latest_release() -> Option<self_update::update::Release> {
+    async_std::task::spawn_blocking(|| {
+        let releases = self_update::backends::github::ReleaseList::configure()
+            .repo_owner("casperstorm")
+            .repo_name("ajour")
+            .build()
+            .ok()?
+            .fetch()
+            .ok()?;
+
+        releases.get(0).cloned()
+    })
+    .await
+}
+
+pub async fn update_in_place(
+    bin_name: String,
+    release: self_update::update::Release,
+) -> Result<()> {
+    async_std::task::spawn_blocking(move || {
+        let asset = release
+            .assets
+            .iter()
+            .find(|a| a.name == bin_name)
+            .cloned()
+            .unwrap();
+
+        let current_bin_path = std::env::current_exe().unwrap();
+
+        let new_bin_path = current_bin_path
+            .parent()
+            .unwrap()
+            .join(&format!("tmp_{}", bin_name));
+
+        let new_bin = File::create(&new_bin_path)?;
+
+        self_update::Download::from_url(&asset.download_url)
+            .set_header(
+                isahc::http::header::ACCEPT,
+                "application/octet-stream".parse().unwrap(),
+            )
+            .download_to(&new_bin)?;
+
+        self_update::Move::from_source(&new_bin_path).to_dest(&::std::env::current_exe()?)?;
+
+        Ok(())
+    })
+    .await
 }
 
 #[derive(Deserialize)]
