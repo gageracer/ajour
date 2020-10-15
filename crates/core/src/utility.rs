@@ -2,7 +2,6 @@ use crate::error::ClientError;
 use crate::network::{download_file, request_async};
 use crate::Result;
 
-use async_std::fs;
 use isahc::prelude::*;
 use regex::Regex;
 use serde::Deserialize;
@@ -41,7 +40,7 @@ pub async fn get_latest_release() -> Option<Release> {
 
     let mut resp = request_async(
         &client,
-        "https://api.github.com/repos/casperstorm/ajour/releases/latest",
+        "https://api.github.com/repos/tarkah/ajour_self_update_test/releases/latest",
         vec![],
         None,
     )
@@ -51,7 +50,9 @@ pub async fn get_latest_release() -> Option<Release> {
     Some(resp.json().ok()?)
 }
 
-pub async fn update_in_place(bin_name: String, release: Release) -> Result<PathBuf> {
+/// Downloads the latest release file that matches `bin_name` and saves it as
+/// `tmp_bin_name`. Will return the temp file as pathbuf.
+pub async fn download_update_to_temp_file(bin_name: String, release: Release) -> Result<PathBuf> {
     let asset = release
         .assets
         .iter()
@@ -80,11 +81,7 @@ pub async fn update_in_place(bin_name: String, release: Release) -> Result<PathB
         fs::set_permissions(&new_bin_path, permissions).await?;
     }
 
-    fs::rename(&new_bin_path, &current_bin_path).await?;
-
-    log::debug!("{:?} renamed to {:?}", &new_bin_path, &current_bin_path);
-
-    Ok(current_bin_path)
+    Ok(new_bin_path)
 }
 
 /// Logic to help pick the right World of Warcraft folder. We want the root folder.

@@ -15,7 +15,7 @@ use {
         network::download_addon,
         parse::{read_addon_directory, update_addon_fingerprint, FingerprintCollection},
         tukui_api,
-        utility::{update_in_place, wow_path_resolution},
+        utility::{download_update_to_temp_file, wow_path_resolution},
         Result,
     },
     async_std::sync::{Arc, Mutex},
@@ -1168,24 +1168,24 @@ pub fn handle_message(ajour: &mut Ajour, message: Message) -> Result<Command<Mes
                 ajour.self_update_state.status = Some(SelfUpdateStatus::InProgress);
 
                 return Ok(Command::perform(
-                    update_in_place(bin_name, release.clone()),
-                    Message::AjourUpdated,
+                    download_update_to_temp_file(bin_name, release.clone()),
+                    Message::AjourUpdateDownloaded,
                 ));
             }
         }
-        Message::AjourUpdated(Ok(bin_path)) => {
-            log::debug!("Message::AjourUpdated");
+        Message::AjourUpdateDownloaded(Ok(tmp_path)) => {
+            log::debug!("Message::AjourUpdateDownloaded");
 
             // Remove first arg, which is path to binary. We don't use this first
-            // arg as binary path because it's not reliable, per the docs. We
-            // also don't use `env::current_exe()` here because on linux, it returns
-            // a path with `(deleted)` in it from the `update_in_place` operation, which
-            // is why we store the `env::current_exe()` path before that operation takes
-            // place, and return it to this Message to use.
+            // arg as binary path because it's not reliable, per the docs.
             let mut args = std::env::args();
             args.next();
 
-            match std::process::Command::new(&bin_path).args(args).spawn() {
+            match std::process::Command::new(&tmp_path)
+                .args(args)
+                .arg("--self-update-temp")
+                .spawn()
+            {
                 Ok(_) => std::process::exit(0),
                 Err(error) => {
                     log::error!("{}", error);
@@ -1199,7 +1199,7 @@ pub fn handle_message(ajour: &mut Ajour, message: Message) -> Result<Command<Mes
         | Message::CatalogDownloaded(Err(error))
         | Message::CatalogInstallAddonFetched(Err(error))
         | Message::DownloadedAddon((_, _, Err(error)))
-        | Message::AjourUpdated(Err(error)) => {
+        | Message::AjourUpdateDownloaded(Err(error)) => {
             log::error!("{}", error);
 
             ajour.state = AjourState::Error(error);

@@ -73,6 +73,8 @@ pub struct Opts {
     pub antialiasing: Option<bool>,
     #[structopt(subcommand)]
     pub command: Option<Command>,
+    #[structopt(long, hidden = true)]
+    pub self_update_temp: bool,
 }
 
 #[derive(Debug, StructOpt)]
